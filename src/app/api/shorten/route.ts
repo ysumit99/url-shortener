@@ -1,10 +1,24 @@
-// app/api/shorten/route.ts
 import { NextResponse } from 'next/server';
 import { redis } from '@/lib/redis';
 import { nanoid } from 'nanoid';
+import { Ratelimit } from '@upstash/ratelimit';
+
+// Create a rate limiter: allows 5 requests per 10 seconds per IP
+const ratelimit = new Ratelimit({
+  redis: redis,
+  limiter: Ratelimit.slidingWindow(5, '10 s'),
+});
 
 export async function POST(request: Request) {
   try {
+    // Get client IP (Vercel forwards this in the headers)
+    const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
+    
+    // Check rate limit
+    const { success } = await ratelimit.limit(ip);
+    if (!success) {
+      return NextResponse.json({ error: 'Too many requests. Please slow down.' }, { status: 429 });
+    }
     const { url, ttlSeconds } = await request.json();
 
     if (!url) {
